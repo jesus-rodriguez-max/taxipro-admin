@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { collection, query, orderBy, limit, startAfter, getDocs, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/firestore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Table from '../../components/Table';
 import Pagination from '../../components/Pagination';
+import SearchInput from '../../components/SearchInput';
+import StatusFilter from '../../components/StatusFilter';
 
 interface Driver {
   id: string;
@@ -18,33 +20,37 @@ const ITEMS_PER_PAGE = 10;
 
 export default function DriversList() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [allDrivers, setAllDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalDrivers, setTotalDrivers] = useState(0);
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
 
   useEffect(() => {
     loadDrivers();
-  }, [currentPage]);
+  }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [searchTerm, statusFilter, allDrivers]);
+
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    if (searchTerm) params.search = searchTerm;
+    if (statusFilter !== 'all') params.status = statusFilter;
+    setSearchParams(params);
+  }, [searchTerm, statusFilter, setSearchParams]);
 
   const loadDrivers = async () => {
     setLoading(true);
     try {
-      let q = query(
+      const q = query(
         collection(db, 'drivers'),
-        orderBy('createdAt', 'desc'),
-        limit(ITEMS_PER_PAGE)
+        orderBy('createdAt', 'desc')
       );
-
-      if (currentPage > 1 && lastDoc) {
-        q = query(
-          collection(db, 'drivers'),
-          orderBy('createdAt', 'desc'),
-          startAfter(lastDoc),
-          limit(ITEMS_PER_PAGE)
-        );
-      }
 
       const snapshot = await getDocs(q);
       
@@ -60,21 +66,40 @@ export default function DriversList() {
         };
       });
 
-      setDrivers(driversData);
-      if (snapshot.docs.length > 0) {
-        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-      }
-
-      // Obtener total (esto es una aproximación, en producción usar aggregation)
-      if (currentPage === 1) {
-        const allSnapshot = await getDocs(collection(db, 'drivers'));
-        setTotalDrivers(allSnapshot.size);
-      }
+      setAllDrivers(driversData);
+      setTotalDrivers(driversData.length);
     } catch (error) {
       console.error('Error loading drivers:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...allDrivers];
+
+    // Filtro de búsqueda
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (driver) =>
+          driver.name.toLowerCase().includes(term) ||
+          driver.email.toLowerCase().includes(term) ||
+          (driver.phone && driver.phone.toLowerCase().includes(term))
+      );
+    }
+
+    // Filtro de status
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((driver) => driver.status === statusFilter);
+    }
+
+    setTotalDrivers(filtered.length);
+    
+    // Paginación
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    setDrivers(filtered.slice(startIndex, endIndex));
   };
 
   const getStatusBadge = (status: string) => {
@@ -117,6 +142,14 @@ export default function DriversList() {
     },
   ];
 
+  const statusOptions = [
+    { value: 'all', label: 'Todos' },
+    { value: 'active', label: 'Activo' },
+    { value: 'pending', label: 'Pendiente' },
+    { value: 'suspended', label: 'Suspendido' },
+    { value: 'rejected', label: 'Rechazado' },
+  ];
+
   const totalPages = Math.ceil(totalDrivers / ITEMS_PER_PAGE);
 
   return (
@@ -129,6 +162,22 @@ export default function DriversList() {
         >
           Actualizar
         </button>
+      </div>
+
+      {/* Filtros */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SearchInput
+            placeholder="Buscar por nombre, email o teléfono..."
+            onSearch={setSearchTerm}
+          />
+          <StatusFilter
+            options={statusOptions}
+            selected={statusFilter}
+            onChange={setStatusFilter}
+            label="Filtrar por estado"
+          />
+        </div>
       </div>
 
       <Table

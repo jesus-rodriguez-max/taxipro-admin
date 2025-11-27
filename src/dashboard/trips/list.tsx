@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { collection, query, orderBy, limit, startAfter, getDocs, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/firestore';
+import { useSearchParams } from 'react-router-dom';
 import Table from '../../components/Table';
 import Pagination from '../../components/Pagination';
+import SearchInput from '../../components/SearchInput';
+import StatusFilter from '../../components/StatusFilter';
 
 interface Trip {
   id: string;
@@ -18,33 +21,37 @@ interface Trip {
 const ITEMS_PER_PAGE = 20;
 
 export default function TripsList() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [allTrips, setAllTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalTrips, setTotalTrips] = useState(0);
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
 
   useEffect(() => {
     loadTrips();
-  }, [currentPage]);
+  }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [searchTerm, statusFilter, allTrips, currentPage]);
+
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    if (searchTerm) params.search = searchTerm;
+    if (statusFilter !== 'all') params.status = statusFilter;
+    setSearchParams(params);
+  }, [searchTerm, statusFilter, setSearchParams]);
 
   const loadTrips = async () => {
     setLoading(true);
     try {
-      let q = query(
+      const q = query(
         collection(db, 'trips'),
-        orderBy('createdAt', 'desc'),
-        limit(ITEMS_PER_PAGE)
+        orderBy('createdAt', 'desc')
       );
-
-      if (currentPage > 1 && lastDoc) {
-        q = query(
-          collection(db, 'trips'),
-          orderBy('createdAt', 'desc'),
-          startAfter(lastDoc),
-          limit(ITEMS_PER_PAGE)
-        );
-      }
 
       const snapshot = await getDocs(q);
       
@@ -62,20 +69,36 @@ export default function TripsList() {
         };
       });
 
-      setTrips(tripsData);
-      if (snapshot.docs.length > 0) {
-        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-      }
-
-      if (currentPage === 1) {
-        const allSnapshot = await getDocs(collection(db, 'trips'));
-        setTotalTrips(allSnapshot.size);
-      }
+      setAllTrips(tripsData);
+      setTotalTrips(tripsData.length);
     } catch (error) {
       console.error('Error loading trips:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...allTrips];
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (trip) =>
+          trip.id.toLowerCase().includes(term) ||
+          trip.passengerName?.toLowerCase().includes(term) ||
+          trip.driverName?.toLowerCase().includes(term)
+      );
+    }
+
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((trip) => trip.status === statusFilter);
+    }
+
+    setTotalTrips(filtered.length);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    setTrips(filtered.slice(startIndex, endIndex));
   };
 
   const getStatusBadge = (status: string) => {
@@ -131,6 +154,15 @@ export default function TripsList() {
     },
   ];
 
+  const statusOptions = [
+    { value: 'all', label: 'Todos' },
+    { value: 'pending', label: 'Pendiente' },
+    { value: 'assigned', label: 'Asignado' },
+    { value: 'active', label: 'Activo' },
+    { value: 'completed', label: 'Completado' },
+    { value: 'cancelled', label: 'Cancelado' },
+  ];
+
   const totalPages = Math.ceil(totalTrips / ITEMS_PER_PAGE);
 
   return (
@@ -143,6 +175,21 @@ export default function TripsList() {
         >
           Actualizar
         </button>
+      </div>
+
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SearchInput
+            placeholder="Buscar por ID, pasajero o chofer..."
+            onSearch={setSearchTerm}
+          />
+          <StatusFilter
+            options={statusOptions}
+            selected={statusFilter}
+            onChange={setStatusFilter}
+            label="Filtrar por estado"
+          />
+        </div>
       </div>
 
       <Table

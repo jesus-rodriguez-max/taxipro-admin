@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { collection, query, orderBy, limit, startAfter, getDocs, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/firestore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Table from '../../components/Table';
 import Pagination from '../../components/Pagination';
+import SearchInput from '../../components/SearchInput';
 
 interface Passenger {
   id: string;
@@ -17,33 +18,35 @@ const ITEMS_PER_PAGE = 10;
 
 export default function PassengersList() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [passengers, setPassengers] = useState<Passenger[]>([]);
+  const [allPassengers, setAllPassengers] = useState<Passenger[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPassengers, setTotalPassengers] = useState(0);
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
 
   useEffect(() => {
     loadPassengers();
-  }, [currentPage]);
+  }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [searchTerm, allPassengers, currentPage]);
+
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    if (searchTerm) params.search = searchTerm;
+    setSearchParams(params);
+  }, [searchTerm, setSearchParams]);
 
   const loadPassengers = async () => {
     setLoading(true);
     try {
-      let q = query(
+      const q = query(
         collection(db, 'passengers'),
-        orderBy('createdAt', 'desc'),
-        limit(ITEMS_PER_PAGE)
+        orderBy('createdAt', 'desc')
       );
-
-      if (currentPage > 1 && lastDoc) {
-        q = query(
-          collection(db, 'passengers'),
-          orderBy('createdAt', 'desc'),
-          startAfter(lastDoc),
-          limit(ITEMS_PER_PAGE)
-        );
-      }
 
       const snapshot = await getDocs(q);
       
@@ -58,20 +61,31 @@ export default function PassengersList() {
         };
       });
 
-      setPassengers(passengersData);
-      if (snapshot.docs.length > 0) {
-        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-      }
-
-      if (currentPage === 1) {
-        const allSnapshot = await getDocs(collection(db, 'passengers'));
-        setTotalPassengers(allSnapshot.size);
-      }
+      setAllPassengers(passengersData);
+      setTotalPassengers(passengersData.length);
     } catch (error) {
       console.error('Error loading passengers:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...allPassengers];
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (passenger) =>
+          passenger.name.toLowerCase().includes(term) ||
+          passenger.email.toLowerCase().includes(term)
+      );
+    }
+
+    setTotalPassengers(filtered.length);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    setPassengers(filtered.slice(startIndex, endIndex));
   };
 
   const columns = [
@@ -101,6 +115,13 @@ export default function PassengersList() {
         >
           Actualizar
         </button>
+      </div>
+
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <SearchInput
+          placeholder="Buscar por nombre o email..."
+          onSearch={setSearchTerm}
+        />
       </div>
 
       <Table
