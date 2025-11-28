@@ -1,37 +1,27 @@
 // set-admin.cjs
 // Script para asignar rol de administrador en Firebase Authentication
 const admin = require("firebase-admin");
-const path = require("path");
-const fs = require("fs");
+const serviceAccount = require("./service-account.json");
 
-// Verificar que existe el archivo service-account.json
-const serviceAccountPath = path.join(__dirname, "service-account.json");
-
-if (!fs.existsSync(serviceAccountPath)) {
-  console.error("❌ ERROR: No se encontró el archivo service-account.json");
-  console.error("📋 Por favor, sigue las instrucciones en INSTRUCCIONES_SERVICE_ACCOUNT.md");
-  console.error("📍 El archivo debe estar en:", serviceAccountPath);
-  process.exit(1);
-}
-
-console.log("✓ Archivo service-account.json encontrado");
+console.log("✓ Archivo service-account.json cargado");
 console.log("⚙️  Inicializando Firebase Admin SDK...");
+console.log(`📦 Proyecto: ${serviceAccount.project_id}`);
 
 // Inicializar Firebase Admin con la credencial explícita
 try {
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccountPath),
-    projectId: "taxipro-chofer",
+    credential: admin.credential.cert(serviceAccount),
   });
   console.log("✓ Firebase Admin SDK inicializado correctamente");
+  console.log(`✓ Proyecto confirmado: ${admin.app().options.projectId}`);
 } catch (error) {
   console.error("❌ ERROR al inicializar Firebase Admin SDK:", error.message);
   process.exit(1);
 }
 
-// UID del usuario admin@taxipro.com.mx
-const uid = "hDgITz8dSyNKKsqso27ny8rMQCV2";
-const email = "admin@taxipro.com.mx";
+// UID del usuario admin@taxipro.com (verificado en Firebase Authentication)
+const uid = "hDglTz8dSyNKKSqso27ny8rMQCV2";
+const email = "admin@taxipro.com";
 
 console.log(`\n🔄 Asignando rol de admin a: ${email}`);
 console.log(`   UID: ${uid}`);
@@ -45,7 +35,7 @@ admin
     console.log("\n⚠️  IMPORTANTE: El usuario debe cerrar sesión y volver a iniciar");
     console.log("   para que los nuevos claims tomen efecto.");
     console.log("\n🔍 Verifica en Firebase Console:");
-    console.log("   Authentication → Users → admin@taxipro.com.mx → Custom Claims");
+    console.log("   Authentication → Users → admin@taxipro.com → Custom Claims");
     process.exit(0);
   })
   .catch((err) => {
